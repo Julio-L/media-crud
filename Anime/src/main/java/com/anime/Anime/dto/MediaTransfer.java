@@ -9,7 +9,7 @@ public class MediaTransfer {
     int rating;
     int bookmark;
     Medium medium;
-    byte[] imgBytes;
+    String imgBytes;
     String imgExtension;
 
     public long getMediaId() {
@@ -60,11 +60,11 @@ public class MediaTransfer {
         this.bookmark = bookmark;
     }
 
-    public byte[] getImgBytes() {
+    public String getImgBytes() {
         return imgBytes;
     }
 
-    public void setImgBytes(byte[] imgBytes) {
+    public void setImgBytes(String imgBytes) {
         this.imgBytes = imgBytes;
     }
 

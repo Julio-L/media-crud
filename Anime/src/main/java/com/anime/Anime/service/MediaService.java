@@ -100,7 +100,7 @@ public class MediaService {
     }
 
     public MediaReturn getMediaSortedBy(String field, boolean asc, int page){
-        Page<Media> res = mediaRepository.getMediaSortedBy(PageRequest.of(page, 1, Sort.by(field)));
+        Page<Media> res = mediaRepository.getMediaSortedBy(PageRequest.of(page, 6, Sort.by(field)));
         MediaReturn mr = new MediaReturn();
         mr.setTotalElements(res.getTotalElements());
         mr.setTotalPages(res.getTotalPages());
@@ -110,7 +110,7 @@ public class MediaService {
         mr.setMedia(mt);
 
         for(MediaTransfer m: mt){
-            byte[] imgBytes = ImageTool.getImageByFilename(m.getMediaId() + m.getImgExtension(), m.getImgExtension().substring(1));
+            String imgBytes = ImageTool.getImageByFilename(m.getMediaId() + m.getImgExtension(), m.getImgExtension().substring(1));
             m.setImgBytes(imgBytes);
         }
 

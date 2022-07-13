@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
 public class ImageTool {
     private static final String MEDIA_PATH = "src/main/resources/static/assets/";
 
-    public static byte[] getImageByFilename(String filename, String format){
+    public static String getImageByFilename(String filename, String format){
         File file = new File(MEDIA_PATH + filename);
         try {
             BufferedImage bImage = ImageIO.read(file);
@@ -18,7 +18,7 @@ public class ImageTool {
             ImageIO.write(bImage, format, bao);
             String img = Base64.encodeBase64String(bao.toByteArray());
 
-            return img.getBytes(StandardCharsets.UTF_8);
+            return img;
         } catch (IOException e) {
             System.out.println(e.getMessage());
         }
@@ -34,10 +34,10 @@ public class ImageTool {
         file.delete();
     }
 
-    public static void saveImageToFileSystem(long mediaId, String imgExtension, byte[] imgBytes) throws IOException {
+    public static void saveImageToFileSystem(long mediaId, String imgExtension, String imgBytes) throws IOException {
         File outputFile = new File(MEDIA_PATH + mediaId + imgExtension);
         FileOutputStream outputStream = new FileOutputStream(outputFile);
-        outputStream.write(imgBytes);
+        outputStream.write(imgBytes.getBytes());
     }
 
 
