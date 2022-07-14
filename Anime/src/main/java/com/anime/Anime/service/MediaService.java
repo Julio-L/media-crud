@@ -100,7 +100,11 @@ public class MediaService {
     }
 
     public MediaReturn getMediaSortedBy(String field, boolean asc, int page){
-        Page<Media> res = mediaRepository.getMediaSortedBy(PageRequest.of(page, 6, Sort.by(field)));
+        Sort sort =  Sort.by(Sort.Order.asc(field));
+        if(!asc){
+            sort = Sort.by(Sort.Order.desc(field));
+        }
+        Page<Media> res = mediaRepository.getMediaSortedBy(PageRequest.of(page, 6, sort));
         MediaReturn mr = new MediaReturn();
         mr.setTotalElements(res.getTotalElements());
         mr.setTotalPages(res.getTotalPages());

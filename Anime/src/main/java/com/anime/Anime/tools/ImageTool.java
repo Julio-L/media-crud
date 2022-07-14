@@ -37,7 +37,8 @@ public class ImageTool {
     public static void saveImageToFileSystem(long mediaId, String imgExtension, String imgBytes) throws IOException {
         File outputFile = new File(MEDIA_PATH + mediaId + imgExtension);
         FileOutputStream outputStream = new FileOutputStream(outputFile);
-        outputStream.write(imgBytes.getBytes());
+        byte[] img = Base64.decodeBase64(imgBytes);
+        outputStream.write(img);
     }
 
 

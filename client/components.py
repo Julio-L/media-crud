@@ -1,5 +1,5 @@
 from turtle import title
-from PyQt5.QtWidgets import QGridLayout, QLineEdit, QTextEdit, QComboBox, QFormLayout, QGroupBox, QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QPushButton
+from PyQt5.QtWidgets import QGridLayout, QSpacerItem, QFileDialog, QLineEdit, QTextEdit, QComboBox, QFormLayout, QGroupBox, QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QPushButton
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
 from requests import request
@@ -7,20 +7,35 @@ import requests
 import settings
 import asyncio
 import base64
-from PyQt5.QtCore import QByteArray
+import json
 
 class APIManager:
     api = 'http://localhost:8080/media'
     
     @staticmethod
-    async def getMedia(callback, page_setup, page, sort_field="title", asc=True):
+    async def getMedia(callback, after, page_setup, page, sort_field="title", asc=True):
         response = requests.get(APIManager.api, {'page':page, 'asc':asc, 'sort':sort_field})
         response = response.json()
 
-        print(response['totalPages'])
         page_setup(response['totalPages'])
         for ele in response['media']:
             callback(ele)
+        
+        after()
+
+    @staticmethod
+    async def postMedia(callback, title, medium, bookmark, rating, notes, img_filename):
+        with open(img_filename, "rb") as f:
+            im_bytes = f.read()        
+        im_b64 = base64.b64encode(im_bytes).decode("utf8")
+
+        headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+        index = img_filename.rfind('.')
+        
+        payload = json.dumps({"mediaId": -1, "imgBytes": im_b64, "title": title, "bookmark":bookmark, "rating":rating, "notes":notes, "medium":medium, "imgExtension":img_filename[index:]})
+
+        response = requests.post(APIManager.api, data=payload, headers=headers)
+        callback()
 
 
 
@@ -38,7 +53,7 @@ class Window(QWidget):
         # self.resize(settings.init_width, settings.init_height)
         self.setStyleSheet('''background-color:rgb(239, 225, 206)''')
         self.media_display = MediaDisplay()
-        self.media_form = MediaForm()
+        self.media_form = MediaForm(self.media_display)
         self.media_control = MediaControl()
 
         # self.layout.addWidget(self.title, 0, 0, 1, 4)
@@ -47,7 +62,7 @@ class Window(QWidget):
         self.layout.addWidget(self.media_control, 1, 7, 2, 2)
        
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(APIManager.getMedia(self.media_display.addMedia, self.media_display.setPages, 0))
+        loop.run_until_complete(APIManager.getMedia(self.media_display.addMedia, self.media_display.spacers, self.media_display.setPages, 0))
 
         self.show()
 
@@ -110,6 +125,11 @@ class MediaPreview(QFrame):
         self.setStyleSheet('''border:2px solid black; border-radius:4px; background-color:black;''')
         
 
+class SpacerItem(QWidget):
+    def __init__(self, width, height):
+        super().__init__()
+        self.layout = QSpacerItem(self, width, height)
+        self.layout.changeSize(width, height)
 
 class MediaDisplay(QFrame):
     def __init__(self):
@@ -132,7 +152,13 @@ class MediaDisplay(QFrame):
     def getPage(self, page_num):
         self.i = 0
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(APIManager.getMedia(self.addMedia, self.setPages, page_num))
+        loop.run_until_complete(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num))
+
+    def spacers(self):
+        for r in range(self.i, 6):
+            spacer = QSpacerItem(240, 300)
+            self.display.addItem(spacer, (r//3) * 3, (r%3)*5, 3, 4)
+
 
     def firstPage(self):
         if self.cur_page ==0:
@@ -185,11 +211,18 @@ class MediaDisplay(QFrame):
 
 
 class MediaForm(QGroupBox):
-    def __init__(self):
+    def __init__(self, media_display):
         super().__init__("Submit Media")
+        self.filenames = []
+        self.media_display = media_display
         self.createUI()
     
     def createUI(self):
+
+        self.dlg = QFileDialog()
+        self.dlg.setFileMode(QFileDialog.AnyFile)
+        # self.dlg.setFilter()
+
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet('''background-color:#c8b7a6; color:black; border:2px solid black;border-radius:7px;''')
         self.layout = QFormLayout(self)
@@ -204,6 +237,9 @@ class MediaForm(QGroupBox):
 
 
         self.medium_input = QComboBox()
+        self.medium_input.addItems(["MANGA", "ANIME"])
+        width = self.medium_input.minimumSizeHint().width();
+        self.medium_input.setMinimumWidth(width)
         self.medium_heading = QLabel("Medium:")
         self.medium_heading.setStyleSheet('''border:none''')
 
@@ -222,13 +258,40 @@ class MediaForm(QGroupBox):
         self.notes_heading = QLabel("Notes")
         self.notes_heading.setStyleSheet('''border:none''')
 
+        self.open_file = QPushButton("Select Image")
+        self.file_name = QLabel("None")
+        self.open_file.clicked.connect(self.get_image_file)
+        self.open_file.setStyleSheet('''border:none''')
+        self.file_name.setStyleSheet('''border:none''')
 
         self.layout.addRow(self.title_heading, self.title_input)
         self.layout.addRow(self.medium_heading, self.medium_input)
         self.layout.addRow(self.bm_heading, self.bm_input)
         self.layout.addRow(self.rating_heading, self.rating_input)
         self.layout.addRow(self.notes_heading, self.notes_input)
+        self.layout.addRow(self.open_file, self.file_name)
 
+        self.submit_btn = QPushButton("Submit")
+        self.submit_btn.clicked.connect(self.submit_form)
+
+        self.layout.addRow(self.submit_btn)
+
+    def get_image_file(self):
+
+        if self.dlg.exec_():
+            self.filenames = self.dlg.selectedFiles()
+            print(self.filenames)
+            print(type(self.filenames))
+    
+    def submit_form(self):
+        title = self.title_input.text()
+        medium = self.medium_input.currentText()
+        bookmark = self.bm_input.text()
+        rating = self.rating_input.text()
+        notes = self.notes_input.toPlainText()
+        file_name = self.filenames[0] if len(self.filenames)>0 else None
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(APIManager.postMedia(self.media_display.firstPage, title, medium, bookmark, rating, notes, file_name))
 
 
 class MediaControl(QGroupBox):
