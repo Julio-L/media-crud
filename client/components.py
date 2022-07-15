@@ -1,5 +1,5 @@
 from turtle import title
-from PyQt5.QtWidgets import QGridLayout, QSpacerItem, QFileDialog, QLineEdit, QTextEdit, QComboBox, QFormLayout, QGroupBox, QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QPushButton
+from PyQt5.QtWidgets import QGridLayout, QStackedWidget, QSpacerItem, QFileDialog, QLineEdit, QTextEdit, QComboBox, QFormLayout, QGroupBox, QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QPushButton
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
 from requests import request
@@ -53,7 +53,7 @@ class Window(QWidget):
         # self.resize(settings.init_width, settings.init_height)
         self.setStyleSheet('''background-color:rgb(239, 225, 206)''')
         self.media_display = MediaDisplay()
-        self.media_form = MediaForm(self.media_display)
+        self.media_form = MediaForm(self.media_display, "Add Media", "Submit")
         self.media_control = MediaControl()
 
         # self.layout.addWidget(self.title, 0, 0, 1, 4)
@@ -92,21 +92,26 @@ class PageButtons(QFrame):
 
 
 class MediaPreview(QFrame):
-    def __init__(self, title, img_bytes, extension):
+    def __init__(self, title, medium, bookmark, rating, notes, img_bytes, extension, media_card):
         super().__init__()
         self.title = title
+        self.medium = medium
+        self.bookmark = bookmark
+        self.rating = rating
+        self.notes = notes
         self.img_bytes = base64.b64decode(img_bytes)
         self.extension = extension
+        self.media_card = media_card
         self.createUI()
 
+    def mousePressEvent(self, e):
+        self.media_card.setMedia(self.title, self.medium, self.bookmark, self.rating, self.notes, self.img_bytes)
 
     def createUI(self):
         self.layout = QVBoxLayout(self)
         self.setFixedWidth(240)
         self.setFixedHeight(300)
 
-
-        
         self.heading = QLabel(self.title)
         self.heading.setAlignment(Qt.AlignCenter)
         self.heading.setStyleSheet('''border:none; color:white;''')
@@ -139,6 +144,7 @@ class MediaDisplay(QFrame):
         self.page_buttons = PageButtons(self, self.firstPage, self.prevPage, self.nextPage, self.lastPage)
         self.cur_page = 0
         self.total_pages = -1
+        self.media_card = MediaCard(self)
         self.createUI()
 
     def setPages(self, total_pages):
@@ -203,19 +209,48 @@ class MediaDisplay(QFrame):
         self.setStyleSheet('''border:2px solid black; background-color:#c8b7a6''')
     
     def addMedia(self, media):
-        media_preview = MediaPreview(media["title"], media["imgBytes"], media['imgExtension'][1:])
+        title = media["title"]
+        medium = media["medium"]
+        rating = media["rating"]
+        bookmark = media["bookmark"]
+        notes = media["notes"]
+        imgBytes = media["imgBytes"]
+        ext = media["imgExtension"][1:]
+
+        media_preview = MediaPreview(title, medium, bookmark, rating, notes, imgBytes, ext, self.media_card)
         self.previews.append(media_preview)
         self.display.addWidget(media_preview, (self.i//3) * 3, (self.i%3)*5, 3, 4)
         self.i +=1
 
 
 
+
 class MediaForm(QGroupBox):
-    def __init__(self, media_display):
-        super().__init__("Submit Media")
+    def __init__(self, media_display, heading, btn_name):
+        super().__init__(heading)
         self.filenames = []
+        self.btn_name = btn_name
         self.media_display = media_display
         self.createUI()
+
+    def setTitle(self, title):
+        self.title_input.setText(title)
+
+    def setMedium(self, medium):
+        if medium == "ANIME":
+            self.medium_input.setCurrentIndex(1)
+        else:
+            self.medium_input.setCurrentIndex(0)
+        pass
+
+    def setRating(self, rating):
+        self.rating_input.setText(str(rating))
+
+    def setBookmark(self, bookmark):
+        self.bm_input.setText(str(bookmark))
+
+    def setNotes(self, notes):
+        self.notes_input.setPlainText(notes)
     
     def createUI(self):
 
@@ -271,7 +306,7 @@ class MediaForm(QGroupBox):
         self.layout.addRow(self.notes_heading, self.notes_input)
         self.layout.addRow(self.open_file, self.file_name)
 
-        self.submit_btn = QPushButton("Submit")
+        self.submit_btn = QPushButton(self.btn_name)
         self.submit_btn.clicked.connect(self.submit_form)
 
         self.layout.addRow(self.submit_btn)
@@ -318,15 +353,45 @@ class MediaControl(QGroupBox):
 
 
 
-class MediaCard(QFrame):
-    def __init__(self):
+class MediaCard(QStackedWidget):
+    def __init__(self, media_display):
         super().__init__()
-        self.createUI()
+        self.media_display = media_display
+        self.setUp()
+
+
+    def setMedia(self, title, medium, bookmark, rating, notes, img):
+        img_cont = QPixmap()
+        img_cont.loadFromData(img)
+        img_cont = img_cont.scaled(390, 590)
+
+        self.img_label.setPixmap(img_cont)
+        self.form.setTitle(title)
+        self.form.setMedium(medium)
+        self.form.setBookmark(bookmark)
+        self.form.setRating(rating)
+        self.form.setNotes(notes)
+
+        self.show()
+
+        
     
-    def createUI(self):
-        self.layout = QVBoxLayout
-        self.setStyleSheet('''border: 2px solid white''')
+    def setUp(self):
+        self.view_widget = QFrame()
+        self.view_container = QHBoxLayout(self.view_widget)
+
+        self.view_widget.setFixedHeight(610)
+        self.img_label = QLabel()
+        self.img_label.setFixedHeight(600)
 
 
+
+        self.form = MediaForm(self.media_display, "Update Media", "Update")
+
+        self.view_container.addWidget(self.img_label)
+        self.view_container.addWidget(self.form)
+
+
+        self.addWidget(self.view_widget)
 
 
