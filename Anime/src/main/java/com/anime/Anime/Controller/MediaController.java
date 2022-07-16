@@ -3,6 +3,8 @@ package com.anime.Anime.Controller;
 import com.anime.Anime.dto.MediaReturn;
 import com.anime.Anime.dto.MediaTransfer;
 import com.anime.Anime.service.MediaService;
+import com.anime.Anime.types.DeleteStatus;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,9 +32,9 @@ public class MediaController {
     }
 
     @DeleteMapping
-    public ResponseEntity removeMedia(@RequestParam("mediaId") long mediaId){
-        mediaService.removeMedia(mediaId);
-        return null;
+    public ResponseEntity<DeleteStatus> removeMedia(@RequestParam("mediaId") long mediaId){
+        DeleteStatus res = mediaService.removeMedia(mediaId);
+        return ResponseEntity.status(res== DeleteStatus.SUCCESS? HttpStatus.ACCEPTED:HttpStatus.EXPECTATION_FAILED).body(res);
     }
 
     @GetMapping

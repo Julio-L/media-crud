@@ -1,5 +1,5 @@
 from turtle import title
-from PyQt5.QtWidgets import QGridLayout, QStackedWidget, QSpacerItem, QFileDialog, QLineEdit, QTextEdit, QComboBox, QFormLayout, QGroupBox, QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QPushButton
+from PyQt5.QtWidgets import QMessageBox,QGridLayout, QStackedWidget, QSpacerItem, QFileDialog, QLineEdit, QTextEdit, QComboBox, QFormLayout, QGroupBox, QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QPushButton
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
 from requests import request
@@ -11,6 +11,15 @@ import json
 
 class APIManager:
     api = 'http://localhost:8080/media'
+
+    @staticmethod
+    async def deleteMedia(callback, media_id):
+        response = requests.delete(APIManager.api, params={"mediaId":media_id})
+        response = response.json()
+        print(response)
+        callback(response)
+
+
     
     @staticmethod
     async def getMedia(callback, after, page_setup, page, sort_field="title", asc=True):
@@ -35,7 +44,7 @@ class APIManager:
         payload = json.dumps({"mediaId": -1, "imgBytes": im_b64, "title": title, "bookmark":bookmark, "rating":rating, "notes":notes, "medium":medium, "imgExtension":img_filename[index:]})
 
         response = requests.post(APIManager.api, data=payload, headers=headers)
-        callback()
+        callback(True)
 
 
 
@@ -51,7 +60,8 @@ class Window(QWidget):
         self.setFixedWidth(settings.init_width)
         self.setFixedHeight(settings.init_height)
         # self.resize(settings.init_width, settings.init_height)
-        self.setStyleSheet('''background-color:rgb(239, 225, 206)''')
+        # self.setStyleSheet('''background-color:rgb(239, 225, 206)''')
+        self.setStyleSheet('''background-color:#e7dfdd''')
         self.media_display = MediaDisplay()
         self.media_form = MediaForm(self.media_display, "Add Media", "Submit")
         self.media_control = MediaControl()
@@ -83,7 +93,7 @@ class PageButtons(QFrame):
         for i in range(4):
             b = QPushButton(self.buttons_heading[i])
             b.clicked.connect(self.callbacks[i])
-            b.setStyleSheet('''background-color:grey''')
+            b.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
             self.buttons.append(b)
             self.layout.addWidget(b)
 
@@ -92,8 +102,9 @@ class PageButtons(QFrame):
 
 
 class MediaPreview(QFrame):
-    def __init__(self, title, medium, bookmark, rating, notes, img_bytes, extension, media_card):
+    def __init__(self, title, medium, bookmark, rating, notes, img_bytes, extension, media_card, media_id):
         super().__init__()
+        self.media_id = media_id
         self.title = title
         self.medium = medium
         self.bookmark = bookmark
@@ -105,7 +116,7 @@ class MediaPreview(QFrame):
         self.createUI()
 
     def mousePressEvent(self, e):
-        self.media_card.setMedia(self.title, self.medium, self.bookmark, self.rating, self.notes, self.img_bytes)
+        self.media_card.setMedia(self.title, self.medium, self.bookmark, self.rating, self.notes, self.img_bytes, self.media_id)
 
     def createUI(self):
         self.layout = QVBoxLayout(self)
@@ -155,10 +166,13 @@ class MediaDisplay(QFrame):
             preview.setParent(None)
         self.previews = []
 
-    def getPage(self, page_num):
+    def getPage(self, page_num, inner_task=False):
         self.i = 0
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num))
+        if inner_task:
+            loop.create_task(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num))
+        else:
+            loop.run_until_complete(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num))
 
     def spacers(self):
         for r in range(self.i, 6):
@@ -166,13 +180,16 @@ class MediaDisplay(QFrame):
             self.display.addItem(spacer, (r//3) * 3, (r%3)*5, 3, 4)
 
 
-    def firstPage(self):
-        if self.cur_page ==0:
+    def firstPage(self, refresh=False):
+        if self.cur_page ==0 and not refresh:
             return
     
         self.clear()
         self.cur_page = 0
-        self.getPage(0)
+        if refresh:
+            self.getPage(0, inner_task=True)
+        else:
+            self.getPage(0)
 
     def nextPage(self):
         if self.cur_page+1 >= self.total_pages:
@@ -206,9 +223,11 @@ class MediaDisplay(QFrame):
         self.display = QGridLayout(self.media_content)
         self.content.addWidget(self.media_content)
         self.content.addWidget(self.page_buttons)
-        self.setStyleSheet('''border:2px solid black; background-color:#c8b7a6''')
+        # self.setStyleSheet('''border:2px solid black; background-color:#c8b7a6''')
+        self.setStyleSheet('''border:2px solid black; background-color:#F2F3F4''')
     
     def addMedia(self, media):
+        media_id = media["mediaId"]
         title = media["title"]
         medium = media["medium"]
         rating = media["rating"]
@@ -217,7 +236,7 @@ class MediaDisplay(QFrame):
         imgBytes = media["imgBytes"]
         ext = media["imgExtension"][1:]
 
-        media_preview = MediaPreview(title, medium, bookmark, rating, notes, imgBytes, ext, self.media_card)
+        media_preview = MediaPreview(title, medium, bookmark, rating, notes, imgBytes, ext, self.media_card, media_id)
         self.previews.append(media_preview)
         self.display.addWidget(media_preview, (self.i//3) * 3, (self.i%3)*5, 3, 4)
         self.i +=1
@@ -259,7 +278,7 @@ class MediaForm(QGroupBox):
         # self.dlg.setFilter()
 
         self.setAlignment(Qt.AlignCenter)
-        self.setStyleSheet('''background-color:#c8b7a6; color:black; border:2px solid black;border-radius:7px;''')
+        self.setStyleSheet('''background-color:#F2F3F4; color:black; border:2px solid black;border-radius:7px;''')
         self.layout = QFormLayout(self)
         self.layout.setContentsMargins(5, 25, 5, 5)
         
@@ -268,6 +287,7 @@ class MediaForm(QGroupBox):
         
         self.title_input = QLineEdit()
         self.title_heading = QLabel("Title:")
+        self.title_input.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
         self.title_heading.setStyleSheet('''border:none''')
 
 
@@ -277,26 +297,30 @@ class MediaForm(QGroupBox):
         self.medium_input.setMinimumWidth(width)
         self.medium_heading = QLabel("Medium:")
         self.medium_heading.setStyleSheet('''border:none''')
+        self.medium_input.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
 
 
         self.bm_input = QLineEdit()
+        self.bm_input.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
         self.bm_heading = QLabel("Bookmark(ep/chp):")
         self.bm_heading.setStyleSheet('''border:none''')
 
 
         self.rating_input = QLineEdit()
+        self.rating_input.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
         self.rating_heading = QLabel("Rating:")
         self.rating_heading.setStyleSheet('''border:none''')
 
 
         self.notes_input = QTextEdit()
+        self.notes_input.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
         self.notes_heading = QLabel("Notes")
         self.notes_heading.setStyleSheet('''border:none''')
 
         self.open_file = QPushButton("Select Image")
         self.file_name = QLabel("None")
         self.open_file.clicked.connect(self.get_image_file)
-        self.open_file.setStyleSheet('''border:none''')
+        self.open_file.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
         self.file_name.setStyleSheet('''border:none''')
 
         self.layout.addRow(self.title_heading, self.title_input)
@@ -304,10 +328,11 @@ class MediaForm(QGroupBox):
         self.layout.addRow(self.bm_heading, self.bm_input)
         self.layout.addRow(self.rating_heading, self.rating_input)
         self.layout.addRow(self.notes_heading, self.notes_input)
-        self.layout.addRow(self.open_file, self.file_name)
+        self.layout.addRow(self.open_file)
 
         self.submit_btn = QPushButton(self.btn_name)
         self.submit_btn.clicked.connect(self.submit_form)
+        self.submit_btn.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
 
         self.layout.addRow(self.submit_btn)
 
@@ -336,7 +361,7 @@ class MediaControl(QGroupBox):
     
     def createUI(self):
         self.setAlignment(Qt.AlignCenter)
-        self.setStyleSheet('''background-color:#c8b7a6; color:black; border:2px solid black;border-radius:7px;''')
+        self.setStyleSheet('''background-color:#F2F3F4; color:black; border:2px solid black;border-radius:7px;''')
         self.layout = QFormLayout(self)
         self.layout.setContentsMargins(5, 25, 5, 5)
         
@@ -357,13 +382,15 @@ class MediaCard(QStackedWidget):
     def __init__(self, media_display):
         super().__init__()
         self.media_display = media_display
+        self.popup = QMessageBox()
         self.setUp()
 
 
-    def setMedia(self, title, medium, bookmark, rating, notes, img):
+    def setMedia(self, title, medium, bookmark, rating, notes, img, media_id):
+        self.media_id = media_id
         img_cont = QPixmap()
         img_cont.loadFromData(img)
-        img_cont = img_cont.scaled(390, 590)
+        img_cont = img_cont.scaled(390, 570)
 
         self.img_label.setPixmap(img_cont)
         self.form.setTitle(title)
@@ -374,24 +401,48 @@ class MediaCard(QStackedWidget):
 
         self.show()
 
-        
+    def deleted(self, status):
+        if(status == "SUCCESS"):
+            self.popup.setText("Deleted")
+            self.media_display.firstPage(True)
+            self.close()
+            self.popup.exec()
+        else:
+            self.popup.setText("Failed to delete")
+            self.popup.exec()
+
+    def tryDeleting(self):
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(APIManager.deleteMedia(self.deleted, self.media_id))
+
+    
     
     def setUp(self):
+        self.setStyleSheet('''background-color:#e7dfdd''')
+        self.setFixedWidth(780)
         self.view_widget = QFrame()
         self.view_container = QHBoxLayout(self.view_widget)
+        
+
+        self.image_cont = QFrame()
+        self.image_cont_layout = QVBoxLayout(self.image_cont)
 
         self.view_widget.setFixedHeight(610)
-        self.img_label = QLabel()
-        self.img_label.setFixedHeight(600)
 
+        self.img_label = QLabel()
+        self.img_label.setStyleSheet('''border:2px solid black;border-radius:7px''')
+        self.img_label.setFixedHeight(500)
+        self.delete_btn = QPushButton("Delete")
+        self.delete_btn.setStyleSheet('''background-color:#555555;border-radius:7px''')
+        self.delete_btn.clicked.connect(self.tryDeleting)
+        self.image_cont_layout.addWidget(self.img_label)
+        self.image_cont_layout.addWidget(self.delete_btn)
 
 
         self.form = MediaForm(self.media_display, "Update Media", "Update")
 
-        self.view_container.addWidget(self.img_label)
+        self.view_container.addWidget(self.image_cont)
         self.view_container.addWidget(self.form)
-
-
         self.addWidget(self.view_widget)
 
 
