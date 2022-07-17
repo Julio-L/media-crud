@@ -1,3 +1,4 @@
+from email.mime import base
 from turtle import title
 from PyQt5.QtWidgets import QMessageBox,QGridLayout, QStackedWidget, QSpacerItem, QFileDialog, QLineEdit, QTextEdit, QComboBox, QFormLayout, QGroupBox, QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QPushButton
 from PyQt5.QtGui import QPixmap
@@ -23,6 +24,8 @@ class APIManager:
     
     @staticmethod
     async def getMedia(callback, after, page_setup, page, sort_field="title", asc=True):
+        print(sort_field)
+        print(asc)
         response = requests.get(APIManager.api, {'page':page, 'asc':asc, 'sort':sort_field})
         response = response.json()
 
@@ -46,6 +49,24 @@ class APIManager:
         response = requests.post(APIManager.api, data=payload, headers=headers)
         callback(True)
 
+    @staticmethod
+    async def putMedia(callback, media_id, title, medium, bookmark, rating, notes, img, ext):
+
+        headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+        payload = json.dumps({"mediaId": media_id, "imgBytes": img, "title": title, "bookmark":bookmark, "rating":rating, "notes":notes, "medium":medium, "imgExtension":ext})
+
+        response = requests.put(APIManager.api, data=payload, headers=headers)
+        callback(True)
+    
+    @staticmethod
+    def process_image(img):
+        with open(img, "rb") as f:
+            im_bytes = f.read()        
+        im_b64 = base64.b64encode(im_bytes).decode("utf8")
+        index = img.rfind('.')
+        ext = img[index:]
+        return (im_bytes, im_b64, ext)
+
 
 
 class Window(QWidget):
@@ -62,14 +83,15 @@ class Window(QWidget):
         # self.resize(settings.init_width, settings.init_height)
         # self.setStyleSheet('''background-color:rgb(239, 225, 206)''')
         self.setStyleSheet('''background-color:#e7dfdd''')
-        self.media_display = MediaDisplay()
-        self.media_form = MediaForm(self.media_display, "Add Media", "Submit")
-        self.media_control = MediaControl()
+        self.filters = MediaControl()
+        self.media_display = MediaDisplay(self.filters)
+        self.filters.set_btn_action(self.media_display.first_page_refresh)
+        self.media_form = MediaForm(self.media_display, "Add Media", "Submit", self.media_display.firstPage)
 
         # self.layout.addWidget(self.title, 0, 0, 1, 4)
         self.layout.addWidget(self.media_display, 1, 0, 6, 4)
         self.layout.addWidget(self.media_form, 3, 7, 4, 2)
-        self.layout.addWidget(self.media_control, 1, 7, 2, 2)
+        self.layout.addWidget(self.filters, 1, 7, 2, 2)
        
         loop = asyncio.get_event_loop()
         loop.run_until_complete(APIManager.getMedia(self.media_display.addMedia, self.media_display.spacers, self.media_display.setPages, 0))
@@ -110,13 +132,13 @@ class MediaPreview(QFrame):
         self.bookmark = bookmark
         self.rating = rating
         self.notes = notes
-        self.img_bytes = base64.b64decode(img_bytes)
         self.extension = extension
         self.media_card = media_card
+        self.img_bytes = img_bytes
         self.createUI()
 
     def mousePressEvent(self, e):
-        self.media_card.setMedia(self.title, self.medium, self.bookmark, self.rating, self.notes, self.img_bytes, self.media_id)
+        self.media_card.setMedia(self.title, self.medium, self.bookmark, self.rating, self.notes, self.img_bytes, self.extension,self.media_id)
 
     def createUI(self):
         self.layout = QVBoxLayout(self)
@@ -131,7 +153,7 @@ class MediaPreview(QFrame):
         self.img_container.setStyleSheet('''border:none''')
 
         self.img = QPixmap()
-        self.img.loadFromData(self.img_bytes)
+        self.img.loadFromData(base64.b64decode(self.img_bytes))
         self.img = self.img.scaled(240, 280)
         self.img_container.setPixmap(self.img)
         
@@ -148,8 +170,9 @@ class SpacerItem(QWidget):
         self.layout.changeSize(width, height)
 
 class MediaDisplay(QFrame):
-    def __init__(self):
+    def __init__(self, filters):
         super().__init__()
+        self.filters = filters
         self.previews = []
         self.i = 0
         self.page_buttons = PageButtons(self, self.firstPage, self.prevPage, self.nextPage, self.lastPage)
@@ -166,13 +189,19 @@ class MediaDisplay(QFrame):
             preview.setParent(None)
         self.previews = []
 
+
+    def first_page_refresh(self):
+        self.firstPage(refresh=True, inner_task=False)
+
     def getPage(self, page_num, inner_task=False):
         self.i = 0
         loop = asyncio.get_event_loop()
+        order_by = self.filters.order_by()
+        direction = self.filters.direction()
         if inner_task:
-            loop.create_task(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num))
+            loop.create_task(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num,order_by, direction == 'asc'))
         else:
-            loop.run_until_complete(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num))
+            loop.run_until_complete(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num,order_by, direction == 'asc'))
 
     def spacers(self):
         for r in range(self.i, 6):
@@ -180,16 +209,13 @@ class MediaDisplay(QFrame):
             self.display.addItem(spacer, (r//3) * 3, (r%3)*5, 3, 4)
 
 
-    def firstPage(self, refresh=False):
+    def firstPage(self, refresh=False, inner_task=False):
         if self.cur_page ==0 and not refresh:
             return
     
         self.clear()
         self.cur_page = 0
-        if refresh:
-            self.getPage(0, inner_task=True)
-        else:
-            self.getPage(0)
+        self.getPage(0, inner_task)
 
     def nextPage(self):
         if self.cur_page+1 >= self.total_pages:
@@ -245,12 +271,39 @@ class MediaDisplay(QFrame):
 
 
 class MediaForm(QGroupBox):
-    def __init__(self, media_display, heading, btn_name):
+    def __init__(self, media_display, heading, btn_name, callback, post=True):
         super().__init__(heading)
+        self.post = post
+        self.new_image= False
+        self.callback = callback
         self.filenames = []
         self.btn_name = btn_name
         self.media_display = media_display
+        self.media_id = None
+        self.img = None
+        self.ext = None
         self.createUI()
+    
+    def get_img(self):
+        return self.img
+    
+    def set_img(self, img):
+        self.img = img
+
+    def set_media_id(self, media_id):
+        self.media_id = media_id
+
+    def set_ext(self, ext):
+        self.ext = ext
+    
+    def get_file_name(self):
+        return self.filenames[0]
+
+    def has_new_file(self):
+        return self.new_image
+
+    def reset_new_image(self):
+        self.new_image = False
 
     def setTitle(self, title):
         self.title_input.setText(title)
@@ -331,17 +384,19 @@ class MediaForm(QGroupBox):
         self.layout.addRow(self.open_file)
 
         self.submit_btn = QPushButton(self.btn_name)
-        self.submit_btn.clicked.connect(self.submit_form)
+        if self.post:
+            self.submit_btn.clicked.connect(self.submit_form)
+        else:
+            self.submit_btn.clicked.connect(self.put_form)
         self.submit_btn.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
 
         self.layout.addRow(self.submit_btn)
 
     def get_image_file(self):
-
         if self.dlg.exec_():
             self.filenames = self.dlg.selectedFiles()
-            print(self.filenames)
-            print(type(self.filenames))
+            self.new_image = True
+        
     
     def submit_form(self):
         title = self.title_input.text()
@@ -351,12 +406,35 @@ class MediaForm(QGroupBox):
         notes = self.notes_input.toPlainText()
         file_name = self.filenames[0] if len(self.filenames)>0 else None
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(APIManager.postMedia(self.media_display.firstPage, title, medium, bookmark, rating, notes, file_name))
+        loop.run_until_complete(APIManager.postMedia(self.callback, title, medium, bookmark, rating, notes, file_name))
+
+    def put_form(self):
+        title = self.title_input.text()
+        medium = self.medium_input.currentText()
+        bookmark = self.bm_input.text()
+        rating = self.rating_input.text()
+        notes = self.notes_input.toPlainText()
+
+
+        if self.new_image:
+            temp = APIManager.process_image(self.get_file_name())
+            self.set_img(temp[1])
+            self.set_ext(temp[2])
+            self.new_image = False
+        
+        img_bytes = self.img
+        ext = self.ext
+
+        
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(APIManager.putMedia(self.callback,self.media_id, title, medium, bookmark, rating, notes, img_bytes, ext))
+
+        
 
 
 class MediaControl(QGroupBox):
     def __init__(self):
-        super().__init__("Controls")
+        super().__init__("Filters")
         self.createUI()
     
     def createUI(self):
@@ -370,11 +448,47 @@ class MediaControl(QGroupBox):
         
 
         self.sort_input = QComboBox()
+        self.sort_input.addItems(["Title", "Rating", "Medium", "Last Updated"])
+        width = self.sort_input.minimumSizeHint().width()
+        self.sort_input.setMinimumWidth(width)
         self.sort_heading = QLabel("Sort:")
         self.sort_heading.setStyleSheet('''border:none''')
+        self.sort_input.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
+
+        self.dir_heading = QLabel("Direction:")
+        self.dir_heading.setStyleSheet('''border:none''')
+        self.dir_input = QComboBox()
+        self.dir_input.addItems(["Asc", "Desc"])
+        width = self.dir_input.minimumSizeHint().width()
+        self.dir_input.setMinimumWidth(width)
+        self.dir_input.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
+
+        self.search_heading=QLabel("Keyword:")
+        self.search_heading.setStyleSheet('''border:none''')
+        self.search_input = QLineEdit()
+        self.search_input.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
+
+        self.filter_btn = QPushButton("Filter")
+        self.filter_btn.setFixedWidth(100)
+        self.filter_btn.setStyleSheet('''background-color:#555555;border-radius:7px; color:white''')
 
         self.layout.addRow(self.sort_heading, self.sort_input)
+        self.layout.addRow(self.dir_heading, self.dir_input)
+        self.layout.addRow(self.search_heading, self.search_input)
+        self.layout.addRow("", self.filter_btn)
 
+
+
+    def set_btn_action(self, action):
+        self.filter_btn.clicked.connect(action)
+
+    def order_by(self):
+        orderBy = self.sort_input.currentText().lower()
+        if orderBy == "last updated":
+            orderBy = "lastModified"
+        return orderBy
+    def direction(self):
+        return self.dir_input.currentText().lower()
 
 
 
@@ -386,10 +500,13 @@ class MediaCard(QStackedWidget):
         self.setUp()
 
 
-    def setMedia(self, title, medium, bookmark, rating, notes, img, media_id):
+    def setMedia(self, title, medium, bookmark, rating, notes, img, ext, media_id):
         self.media_id = media_id
+        self.img = img
+        self.ext = ext
+
         img_cont = QPixmap()
-        img_cont.loadFromData(img)
+        img_cont.loadFromData(base64.b64decode(img))
         img_cont = img_cont.scaled(390, 570)
 
         self.img_label.setPixmap(img_cont)
@@ -398,13 +515,16 @@ class MediaCard(QStackedWidget):
         self.form.setBookmark(bookmark)
         self.form.setRating(rating)
         self.form.setNotes(notes)
+        self.form.set_media_id(self.media_id)
+        self.form.set_ext(self.ext)
+        self.form.set_img(img)
 
         self.show()
 
     def deleted(self, status):
         if(status == "SUCCESS"):
             self.popup.setText("Deleted")
-            self.media_display.firstPage(True)
+            self.media_display.firstPage(True, True)
             self.close()
             self.popup.exec()
         else:
@@ -415,6 +535,16 @@ class MediaCard(QStackedWidget):
         loop = asyncio.get_event_loop()
         loop.run_until_complete(APIManager.deleteMedia(self.deleted, self.media_id))
 
+    def update_media(self, updated):
+        if not updated:
+            return
+        img_cont = QPixmap()
+        img_cont.loadFromData(base64.b64decode(self.form.get_img()))
+        img_cont = img_cont.scaled(390, 570)
+
+        self.img_label.setPixmap(img_cont)
+        self.media_display.firstPage(refresh=True, inner_task=True)
+        
     
     
     def setUp(self):
@@ -439,7 +569,7 @@ class MediaCard(QStackedWidget):
         self.image_cont_layout.addWidget(self.delete_btn)
 
 
-        self.form = MediaForm(self.media_display, "Update Media", "Update")
+        self.form = MediaForm(self.media_display, "Update Media", "Update", self.update_media, post=False)
 
         self.view_container.addWidget(self.image_cont)
         self.view_container.addWidget(self.form)
