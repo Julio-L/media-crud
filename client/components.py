@@ -17,16 +17,13 @@ class APIManager:
     async def deleteMedia(callback, media_id):
         response = requests.delete(APIManager.api, params={"mediaId":media_id})
         response = response.json()
-        print(response)
         callback(response)
 
 
     
     @staticmethod
-    async def getMedia(callback, after, page_setup, page, sort_field="title", asc=True):
-        print(sort_field)
-        print(asc)
-        response = requests.get(APIManager.api, {'page':page, 'asc':asc, 'sort':sort_field})
+    async def getMedia(callback, after, page_setup, page, sort_field="title", asc=True, keyword=""):
+        response = requests.get(APIManager.api, {'page':page, 'asc':asc, 'sort':sort_field, 'keyword':keyword})
         response = response.json()
 
         page_setup(response['totalPages'])
@@ -198,10 +195,11 @@ class MediaDisplay(QFrame):
         loop = asyncio.get_event_loop()
         order_by = self.filters.order_by()
         direction = self.filters.direction()
+        keyword = self.filters.keyword()
         if inner_task:
-            loop.create_task(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num,order_by, direction == 'asc'))
+            loop.create_task(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num,order_by, direction == 'asc', keyword))
         else:
-            loop.run_until_complete(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num,order_by, direction == 'asc'))
+            loop.run_until_complete(APIManager.getMedia(self.addMedia, self.spacers, self.setPages, page_num,order_by, direction == 'asc', keyword))
 
     def spacers(self):
         for r in range(self.i, 6):
@@ -478,6 +476,8 @@ class MediaControl(QGroupBox):
         self.layout.addRow("", self.filter_btn)
 
 
+    def keyword(self):
+        return self.search_input.text()
 
     def set_btn_action(self, action):
         self.filter_btn.clicked.connect(action)
